@@ -1,0 +1,135 @@
+// Package tree reconstructs tree layouts from an unsorted set of records.
+package tree
+
+// Import packages
+import (
+	"errors"
+	// "fmt"
+)
+
+// Record type stores an ID and a parent ID.
+type Record struct {
+	ID, Parent int
+}
+
+// Node type stores an ID and the IDs of all children.
+type Node struct {
+	ID       int
+	Children []*Node
+}
+
+// Mismatch type is used to throw errors when needed.
+type Mismatch struct{}
+
+// Error generates errors in case of mismatch.
+func (m Mismatch) Error() string {
+	return "Error: A mismatch in the records was detected!"
+}
+
+// Build generates a tree based on an unsorted set of records.
+func Build(records []Record) (*Node, error) {
+
+	// In case the record is empty.
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	// Handling of duplicate nodes.
+	for key := range records {
+		for i := key + 1; i < len(records); i++ {
+			if records[i].ID == records[key].ID {
+				return nil, errors.New("Error: Duplicate nodes found!")
+			}
+		}
+	}
+
+	root := &Node{}
+	todo := []*Node{root}
+
+	// Start of algorithm.
+	n := 1
+	for {
+
+		// Exit when no remaining node to treat.
+		if len(todo) == 0 {
+			break
+		}
+
+		newTodo := []*Node(nil)
+		for _, c := range todo {
+			for _, r := range records {
+				if r.Parent == c.ID {
+					if r.ID < c.ID {
+						return nil, errors.New("Error: A child cannot have a lower ID than its parent!")
+					} else if r.ID == c.ID {
+						if r.ID != 0 {
+							return nil, errors.New("Error: A record with ID other than 0 cannot be its own parent!")
+						}
+					} else {
+						n++
+						switch len(c.Children) {
+						case 0:
+							// The record item is the first child of the current node: simply add.
+							nn := &Node{ID: r.ID}
+							c.Children = []*Node{nn}
+							newTodo = append(newTodo, nn)
+						case 1:
+							// Already one child: reordering is necessary.
+							nn := &Node{ID: r.ID}
+							if c.Children[0].ID < r.ID {
+								c.Children = []*Node{c.Children[0], nn}
+								newTodo = append(newTodo, nn)
+							} else {
+								c.Children = []*Node{nn, c.Children[0]}
+								newTodo = append(newTodo, nn)
+							}
+						default:
+							// General case with more than one child.
+							nn := &Node{ID: r.ID}
+							newTodo = append(newTodo, nn)
+						breakpoint:
+							for range []bool{false} {
+								for i, cc := range c.Children {
+									if cc.ID > r.ID {
+										// The new child is placed between its immediate lower and higher siblings.
+										a := make([]*Node, len(c.Children)+1)
+										copy(a, c.Children[:i])
+										copy(a[i+1:], c.Children[i:])
+										copy(a[i:i+1], []*Node{nn})
+										c.Children = a
+										break breakpoint
+									}
+								}
+								c.Children = append(c.Children, nn)
+							}
+						}
+					}
+				}
+			}
+		}
+		// Redefine items to handle during the next iteration.
+		todo = newTodo
+	}
+	if n != len(records) {
+		return nil, Mismatch{}
+	}
+	if err := check(root, len(records)); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+// check performs final checks on the final tree layout by looking at IDs of all nodes.
+func check(n *Node, m int) (err error) {
+	if n.ID >= m {
+		return errors.New("Error: ID value exceeding the total number of records.")
+	}
+
+	for i := 0; i < len(n.Children); i++ {
+		err = check(n.Children[i], m)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
